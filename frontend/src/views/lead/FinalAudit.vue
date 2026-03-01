@@ -260,8 +260,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref, reactive, computed, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft,
   Film,
@@ -272,6 +272,7 @@ import {
   Plus,
   CloseBold,
 } from '@element-plus/icons-vue'
+import { api } from '@/services/api'
 
 const loading = ref(false)
 const filterStatus = ref('pending')
@@ -291,33 +292,20 @@ const reviewForm = reactive({
   rejection_reason: [],
 })
 
-// Mock data
-const chapters = ref([
-  {
-    id: 1,
-    title: '第一章：开端',
-    status: 'pending',
-    storyboard_count: 12,
-    duration: 60,
-    submitted_at: '2026-03-01 10:00',
-    thumbnail: 'https://via.placeholder.com/300x170',
-    video_url: '#',
-    storyboards: [
-      { id: 1, image_url: 'https://via.placeholder.com/100', status: 'approved' },
-      { id: 2, image_url: 'https://via.placeholder.com/100', status: 'pending' },
-    ],
-  },
-  {
-    id: 2,
-    title: '第二章：发展',
-    status: 'pending',
-    storyboard_count: 15,
-    duration: 75,
-    submitted_at: '2026-03-01 11:00',
-    thumbnail: 'https://via.placeholder.com/300x170',
-    video_url: '#',
-  },
-])
+const chapters = ref<any[]>([])
+
+const fetchPendingAudits = async () => {
+  loading.value = true
+  try {
+    const response = await api.audits.listPending('second')
+    chapters.value = response.data || response
+  } catch (error) {
+    ElMessage.error('获取审核列表失败')
+    console.error(error)
+  } finally {
+    loading.value = false
+  }
+}
 
 const filteredChapters = computed(() => {
   if (filterStatus.value === 'all') return chapters.value
@@ -369,7 +357,6 @@ const selectChapter = (chapter: any) => {
 }
 
 const showRejectReason = computed(() => {
-  // Show when user is about to reject (rating low or feedback indicates issues)
   return reviewForm.rating <= 2 || reviewForm.feedback.includes('不')
 })
 
@@ -383,24 +370,38 @@ const handleReject = () => {
   showResultDialog.value = true
 }
 
-const confirmApprove = () => {
+const confirmApprove = async () => {
   if (currentAudit.value) {
-    currentAudit.value.status = 'approved'
+    try {
+      await api.audits.approve(currentAudit.value.review_id, reviewForm.feedback)
+      currentAudit.value.status = 'approved'
+      showResultDialog.value = false
+      ElMessage.success('审核通过')
+      fetchPendingAudits()
+    } catch (error) {
+      ElMessage.error('审核失败')
+      console.error(error)
+    }
   }
-  showResultDialog.value = false
-  ElMessage.success('审核通过')
 }
 
-const confirmReject = () => {
+const confirmReject = async () => {
   if (currentAudit.value) {
-    currentAudit.value.status = 'rejected'
+    try {
+      const reason = reviewForm.rejection_reason.join(', ')
+      await api.audits.reject(currentAudit.value.review_id, reason || reviewForm.feedback)
+      currentAudit.value.status = 'rejected'
+      showResultDialog.value = false
+      ElMessage.warning('已驳回，等待修改')
+      fetchPendingAudits()
+    } catch (error) {
+      ElMessage.error('驳回失败')
+      console.error(error)
+    }
   }
-  showResultDialog.value = false
-  ElMessage.warning('已驳回，等待修改')
 }
 
 const addMarker = () => {
-  // Get current video time
   const time = videoRef.value?.currentTime?.toFixed(1) || '0.0'
   markers.value.push({
     time,
@@ -411,6 +412,10 @@ const addMarker = () => {
 const removeMarker = (index: number) => {
   markers.value.splice(index, 1)
 }
+
+onMounted(() => {
+  fetchPendingAudits()
+})
 </script>
 
 <style scoped lang="scss">

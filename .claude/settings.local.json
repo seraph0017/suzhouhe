@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git add -A && git status)"
+      "Bash(git add -A && git status)",
+      "Bash(git commit -m \"$\\(cat <<'EOF'\nfeat: 完善所有前端页面的 API 集成\n\n完成的页面：\n- StoryboardEditor: 分镜编辑器 API 集成（列表、创建、编辑、删除、锁定、AI 生成）\n- ChapterBreakdown: 章节拆解 API 集成（列表、创建、编辑、删除、AI 生成、拖拽排序）\n- FirstAudit: 一审工作台 API 集成（图片生成、配音生成、审核通过）\n- MaterialSelection: 素材库 API 集成（音色列表）\n- VideoComposition: 视频合成 API 集成（合成、导出）\n- ScriptEditor: 剧本编辑器 LLM 生成功能\n- Dashboard: 仪表盘数据统计 API 集成\n\n后端更新：\n- storyboards.py: 添加 generate 和 generateImage 接口\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push)"
     ]
   }
 }
