@@ -1,0 +1,6 @@
+{
+  "conventional-changelog": {
+    "preset": "angular",
+    "releaseCount": 3
+  }
+}
