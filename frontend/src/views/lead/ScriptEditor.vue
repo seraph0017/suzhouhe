@@ -386,24 +386,16 @@ const handleDeleteScript = async (script: Script) => {
 const handleLLMGenerate = async () => {
   generating.value = true
   try {
-    // TODO: Call actual LLM generation API
-    await new Promise((resolve) => setTimeout(resolve, 3000))
+    // 调用 LLM 生成 API
+    const response = await api.scripts.generate({
+      theme: llmForm.theme,
+      genre: llmForm.genre,
+      tone: llmForm.tone,
+      length: llmForm.length,
+      project_id: projectId.value,
+    })
 
-    const generatedContent = `【${llmForm.theme}】剧本
-
-类型：${llmForm.genre}
-语调：${llmForm.tone}
-
----
-
-第一幕：开端
-场景：学校操场
-时间：下午
-
-[主角小明在操场上跑步，突然遇到了...]
-
-（此处为 AI 生成的剧本内容，实际使用请调用 LLM API）
-`
+    const generatedContent = response.data?.content || ''
 
     if (currentScript.value) {
       currentScript.value.content = generatedContent
@@ -422,7 +414,7 @@ const handleLLMGenerate = async () => {
     ElMessage.success('剧本生成成功')
     showLLMDialog.value = false
     fetchScripts()
-  } catch (error) {
+  } catch (error: any) {
     ElMessage.error('生成失败')
     console.error(error)
   } finally {
@@ -432,13 +424,14 @@ const handleLLMGenerate = async () => {
 
 const showVersionHistoryDialog = async () => {
   showVersionHistory.value = true
-  // TODO: Fetch versions from API
+  // 版本历史功能开发中
   versions.value = []
 }
 
 const restoreVersion = (version: ScriptVersion) => {
-  // TODO: Implement version restore
+  // 版本恢复功能开发中
   console.log('Restore version:', version)
+  ElMessage.info('版本恢复功能开发中')
 }
 
 watch(() => showVersionHistory.value, (val) => {

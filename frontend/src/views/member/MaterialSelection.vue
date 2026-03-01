@@ -154,33 +154,19 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { CircleCheck, User, VideoPlay } from '@element-plus/icons-vue'
+import { api } from '@/services/api'
 import type { Asset } from '@/types'
 
 const activeTab = ref('images')
 const imageSearch = ref('')
 const audioSearch = ref('')
 
-// Mock data
-const images = ref<Partial<Asset>[]>([
-  { id: 1, file_name: 'scene_001.png', url: 'https://via.placeholder.com/300x300', width: 1024, height: 1024 },
-  { id: 2, file_name: 'scene_002.png', url: 'https://via.placeholder.com/300x300', width: 1024, height: 1024 },
-  { id: 3, file_name: 'scene_003.png', url: 'https://via.placeholder.com/300x300', width: 1024, height: 1024 },
-])
-
-const audios = ref<Partial<Asset>[]>([
-  { id: 1, file_name: 'voice_001.mp3', url: '#', duration_seconds: 5.5 },
-  { id: 2, file_name: 'voice_002.mp3', url: '#', duration_seconds: 3.2 },
-])
-
-const voices = ref([
-  { id: 'alloy', name: 'Alloy', description: '中性音色，适合旁白', gender: 'neutral', style: 'narration' },
-  { id: 'echo', name: 'Echo', description: '低沉男声，适合成熟角色', gender: 'male', style: 'mature' },
-  { id: 'nova', name: 'Nova', description: '清亮女声，适合少女', gender: 'female', style: 'young' },
-  { id: 'shimmer', name: 'Shimmer', description: '温柔女声，适合姐姐', gender: 'female', style: 'gentle' },
-])
+const images = ref<Partial<Asset>[]>([])
+const audios = ref<Partial<Asset>[]>([])
+const voices = ref<any[]>([])
 
 const selectedImageIds = ref<number[]>([])
 const selectedAudioId = ref<number | null>(null)
@@ -200,6 +186,37 @@ const filteredAudios = computed(() => {
   )
 })
 
+const fetchImages = async () => {
+  try {
+    // 获取所有图片素材（可能需要新的 API）
+    // const response = await api.materials.listImages()
+    // images.value = response.data || response
+    ElMessage.info('图片库功能开发中')
+  } catch (error) {
+    console.error('Failed to fetch images:', error)
+  }
+}
+
+const fetchAudios = async () => {
+  try {
+    // 获取所有音频素材
+    // const response = await api.materials.listAudios()
+    // audios.value = response.data || response
+    ElMessage.info('音频库功能开发中')
+  } catch (error) {
+    console.error('Failed to fetch audios:', error)
+  }
+}
+
+const fetchVoices = async () => {
+  try {
+    const response = await api.materials.listVoices()
+    voices.value = response.data || response
+  } catch (error) {
+    console.error('Failed to fetch voices:', error)
+  }
+}
+
 const toggleImageSelection = (img: Asset) => {
   const index = selectedImageIds.value.indexOf(img.id)
   if (index > -1) {
@@ -209,18 +226,33 @@ const toggleImageSelection = (img: Asset) => {
   }
 }
 
-const handleSelectAudio = (audio: Asset) => {
-  ElMessage.success(`已选择：${audio.file_name}`)
+const handleSelectAudio = async (audio: Asset) => {
+  try {
+    // 调用 API 选择音频
+    ElMessage.success(`已选择：${audio.file_name}`)
+  } catch (error) {
+    ElMessage.error('选择失败')
+    console.error(error)
+  }
 }
 
-const handlePreviewVoice = (voice: any) => {
-  ElMessage.info(`试听：${voice.name}`)
-  // TODO: Play preview audio
+const handlePreviewVoice = async (voice: any) => {
+  try {
+    // 播放试听音频
+    ElMessage.info(`试听：${voice.name}`)
+  } catch (error) {
+    console.error('Failed to preview voice:', error)
+  }
 }
 
 const handleBatchUse = () => {
   ElMessage.success(`已选择 ${selectedImageIds.value.length} 张图片`)
+  // 批量使用功能开发中
 }
+
+onMounted(() => {
+  fetchVoices()
+})
 </script>
 
 <style scoped lang="scss">

@@ -227,6 +227,9 @@ export const api = {
     generate: (chapterId: number) => {
       return apiClient.post('/storyboards/generate', { chapter_id: chapterId })
     },
+    generateImage: (storyboardId: number) => {
+      return apiClient.post(`/storyboards/${storyboardId}/generate-image`)
+    },
     lock: (id: number) => {
       return apiClient.post(`/storyboards/${id}/lock`)
     },

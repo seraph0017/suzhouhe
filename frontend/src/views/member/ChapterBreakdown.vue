@@ -69,7 +69,7 @@
             />
 
             <div class="chapter-actions">
-              <el-button link type="danger" size="small" @click="handleDeleteChapter(index)">
+              <el-button link type="danger" size="small" @click="handleDeleteChapter(chapter.id, index)">
                 删除
               </el-button>
             </div>
@@ -119,10 +119,14 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, ArrowRight, MagicStick, Plus, Rank } from '@element-plus/icons-vue'
 import { api } from '@/services/api'
 import type { Chapter } from '@/types'
+
+const route = useRoute()
+const router = useRouter()
 
 const loading = ref(false)
 const generating = ref(false)
@@ -130,48 +134,55 @@ const chapters = ref<Chapter[]>([])
 const showDetailDialog = ref(false)
 const dragIndex = ref(-1)
 
-const editingChapter = reactive<Chapter>({
-  id: 0,
+const editingChapter = reactive<Partial<Chapter>>({
+  id: null,
   script_id: 0,
   order: 1,
   title: '',
   content: '',
   summary: '',
   status: 'draft',
-  created_at: '',
 })
 
-const scriptId = 1 // TODO: Get from route
+// 从路由获取 script_id
+const scriptId = ref<number | null>(null)
 
 const fetchChapters = async () => {
+  if (!scriptId.value) {
+    ElMessage.warning('请先选择剧本')
+    return
+  }
+
   loading.value = true
   try {
-    const response = await api.chapters.list(scriptId)
-    chapters.value = response.data
-  } catch (error) {
-    ElMessage.error('获取章节列表失败')
-    console.error(error)
+    const response = await api.chapters.list(scriptId.value)
+    chapters.value = response.data || response
+  } catch (error: any) {
+    if (error?.response?.status !== 401) {
+      ElMessage.error('获取章节列表失败')
+      console.error(error)
+    }
   } finally {
     loading.value = false
   }
 }
 
 const handleAutoGenerate = async () => {
+  if (!scriptId.value) {
+    ElMessage.warning('请先选择剧本')
+    return
+  }
+
   generating.value = true
   try {
-    // TODO: Call actual API
-    await new Promise((resolve) => setTimeout(resolve, 3000))
+    // 调用 API 生成章节
+    const response = await api.chapters.generate(scriptId.value)
 
-    // Mock generated chapters
-    chapters.value = [
-      { id: 1, script_id: scriptId, order: 1, title: '第一章：开端', content: '故事开始...', status: 'draft', created_at: '' },
-      { id: 2, script_id: scriptId, order: 2, title: '第二章：发展', content: '情节发展...', status: 'draft', created_at: '' },
-      { id: 3, script_id: scriptId, order: 3, title: '第三章：高潮', content: '故事高潮...', status: 'draft', created_at: '' },
-      { id: 4, script_id: scriptId, order: 4, title: '第四章：结局', content: '故事结局...', status: 'draft', created_at: '' },
-    ]
+    chapters.value = response.data || response
 
     ElMessage.success('章节生成成功')
-  } catch (error) {
+    fetchChapters()
+  } catch (error: any) {
     ElMessage.error('生成失败')
     console.error(error)
   } finally {
@@ -179,59 +190,135 @@ const handleAutoGenerate = async () => {
   }
 }
 
-const handleAddChapter = () => {
+const handleAddChapter = async () => {
+  if (!scriptId.value) {
+    ElMessage.warning('请先选择剧本')
+    return
+  }
+
   const newOrder = chapters.value.length > 0
     ? Math.max(...chapters.value.map(c => c.order)) + 1
     : 1
 
-  chapters.value.push({
-    id: 0,
-    script_id: scriptId,
-    order: newOrder,
-    title: `第${newOrder}章`,
-    content: '',
-    summary: '',
-    status: 'draft',
-    created_at: '',
-  })
+  try {
+    const response = await api.chapters.create({
+      script_id: scriptId.value,
+      order: newOrder,
+      title: `第${newOrder}章`,
+      content: '',
+      summary: '',
+    })
+
+    const newChapter = response.data
+    chapters.value.push(newChapter)
+    ElMessage.success('添加成功')
+  } catch (error: any) {
+    ElMessage.error('添加章节失败')
+    console.error(error)
+  }
 }
 
-const handleDeleteChapter = (index: number) => {
-  chapters.value.splice(index, 1)
-  // Reorder
-  chapters.value.forEach((c, i) => {
-    c.order = i + 1
-  })
+const handleDeleteChapter = async (id: number | null, index: number) => {
+  if (!id) {
+    // 未保存的章节，直接从本地删除
+    chapters.value.splice(index, 1)
+    chapters.value.forEach((c, i) => {
+      c.order = i + 1
+    })
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm('确定要删除这个章节吗？', '警告', {
+      type: 'warning',
+    })
+
+    await api.chapters.delete(id)
+    chapters.value.splice(index, 1)
+
+    // 重新排序
+    chapters.value.forEach((c, i) => {
+      c.order = i + 1
+    })
+
+    ElMessage.success('删除成功')
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除失败')
+    }
+  }
 }
 
-const handleSaveChapter = () => {
-  // TODO: Save chapter
-  showDetailDialog.value = false
-  ElMessage.success('保存成功')
+const handleSaveChapter = async () => {
+  if (!editingChapter.id) {
+    ElMessage.error('章节 ID 缺失')
+    return
+  }
+
+  try {
+    await api.chapters.update(editingChapter.id, {
+      title: editingChapter.title,
+      content: editingChapter.content,
+      summary: editingChapter.summary,
+      order: editingChapter.order,
+    })
+
+    ElMessage.success('保存成功')
+    showDetailDialog.value = false
+    fetchChapters()
+  } catch (error: any) {
+    ElMessage.error('保存失败')
+    console.error(error)
+  }
 }
 
 const handleSaveAll = async () => {
-  // TODO: Save all chapters
-  ElMessage.success('全部保存成功')
+  try {
+    // 批量保存所有章节
+    const updatePromises = chapters.value
+      .filter(c => c.id)
+      .map(chapter => api.chapters.update(chapter.id!, {
+        title: chapter.title,
+        content: chapter.content,
+        summary: chapter.summary,
+        order: chapter.order,
+      }))
+
+    await Promise.all(updatePromises)
+
+    ElMessage.success('全部保存成功')
+  } catch (error: any) {
+    ElMessage.error('保存失败')
+    console.error(error)
+  }
 }
 
 const handleDragStart = (index: number) => {
   dragIndex.value = index
 }
 
-const handleDrop = (index: number) => {
+const handleDrop = async (index: number) => {
   if (dragIndex.value === -1 || dragIndex.value === index) return
 
   const draggedItem = chapters.value[dragIndex.value]
   chapters.value.splice(dragIndex.value, 1)
   chapters.value.splice(index, 0, draggedItem)
 
-  // Reorder
+  // 重新排序
   chapters.value.forEach((c, i) => {
     c.order = i + 1
   })
 
   dragIndex.value = -1
+
+  // 保存到后端
+  if (draggedItem.id) {
+    try {
+      await api.chapters.reorder(chapters.value.map(c => c.id!))
+    } catch (error) {
+      console.error('Failed to reorder chapters:', error)
+    }
+  }
 }
 
 const handleCloseDetail = () => {
@@ -239,7 +326,13 @@ const handleCloseDetail = () => {
 }
 
 onMounted(() => {
-  fetchChapters()
+  // 从路由参数获取 script_id
+  scriptId.value = Number(route.query.script_id || route.params.scriptId) || null
+  if (scriptId.value) {
+    fetchChapters()
+  } else {
+    ElMessage.warning('缺少剧本 ID 参数')
+  }
 })
 </script>
 

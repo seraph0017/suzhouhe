@@ -142,39 +142,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, CircleCheck, Headset } from '@element-plus/icons-vue'
+import { api } from '@/services/api'
 import type { Storyboard, Asset } from '@/types'
 
+const route = useRoute()
 const loading = ref(false)
 const filterStatus = ref('all')
 
-// Mock data
-const storyboards = ref<Partial<Storyboard>[]>([
-  {
-    id: 1,
-    order: 1,
-    visual_description: '主角站在学校门口，阳光明媚',
-    dialogue: '今天是个好日子！',
-    emotion: 'happy',
-    camera_direction: '全景 → 中景',
-    selected_image_id: null,
-    generated_images: [],
-    selected_audio: null,
-    audited: false,
-    generating: false,
-  },
-  {
-    id: 2,
-    order: 2,
-    visual_description: '主角与好友相遇，两人交谈',
-    dialogue: '好久不见！最近怎么样？',
-    emotion: 'friendly',
-    selected_image_id: null,
-    audited: false,
-  },
-])
+const storyboards = ref<Partial<Storyboard>[]>([])
+
+// 从路由获取 chapter_id（可选）
+const chapterId = computed(() => {
+  const id = route.query.chapter_id
+  return id ? Number(id) : null
+})
 
 const filteredStoryboards = computed(() => {
   if (filterStatus.value === 'all') return storyboards.value
@@ -212,44 +197,106 @@ const panelStatusType = (sb: Storyboard) => {
   return 'info'
 }
 
+const fetchStoryboards = async () => {
+  loading.value = true
+  try {
+    // 如果有 chapter_id，只获取该章节的分镜
+    if (chapterId.value) {
+      const response = await api.storyboards.list(chapterId.value)
+      storyboards.value = response.data || response
+    } else {
+      // 否则获取所有分镜（可能需要新的 API）
+      ElMessage.info('请先选择章节')
+    }
+  } catch (error: any) {
+    if (error?.response?.status !== 401) {
+      ElMessage.error('获取分镜列表失败')
+      console.error(error)
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
 const handleGenerateImages = async (sb: any) => {
   sb.generating = true
   try {
-    // TODO: Call actual API
-    await new Promise(resolve => setTimeout(resolve, 2000))
+    // 调用图片生成 API
+    const response = await api.storyboards.generateImage(sb.id)
 
-    // Mock generated images (抽卡 3 张)
-    sb.generated_images = [
-      { id: 1, url: 'https://via.placeholder.com/300x300?text=Image+1', file_name: 'img1.png' },
-      { id: 2, url: 'https://via.placeholder.com/300x300?text=Image+2', file_name: 'img2.png' },
-      { id: 3, url: 'https://via.placeholder.com/300x300?text=Image+3', file_name: 'img3.png' },
-    ]
+    // 添加生成的图片到列表
+    if (!sb.generated_images) {
+      sb.generated_images = []
+    }
+    sb.generated_images.push({
+      id: response.data.id,
+      url: response.data.url,
+      file_name: `generated_${sb.id}_${Date.now()}.png`,
+    })
 
     ElMessage.success('图片生成成功')
-  } catch (error) {
+  } catch (error: any) {
     ElMessage.error('生成失败')
+    console.error(error)
   } finally {
     sb.generating = false
   }
 }
 
-const handleSelectImage = (sb: any, img: Asset) => {
-  sb.selected_image_id = img.id
+const handleSelectImage = async (sb: any, img: Asset) => {
+  try {
+    // 调用 API 选择图片
+    await api.materials.selectImage(sb.id, img.id)
+
+    sb.selected_image_id = img.id
+    ElMessage.success('图片已选择')
+  } catch (error: any) {
+    ElMessage.error('选择失败')
+    console.error(error)
+  }
 }
 
 const handleGenerateAudio = async (sb: any) => {
-  // TODO: Call TTS API
-  ElMessage.info('配音生成功能开发中')
+  try {
+    // 调用 TTS 生成 API
+    const response = await api.generation.generateAudio(sb.id)
+
+    sb.selected_audio = response.data
+    ElMessage.success('配音生成成功')
+  } catch (error: any) {
+    ElMessage.error('生成失败')
+    console.error(error)
+  }
 }
 
-const handleApprove = (sb: any) => {
-  sb.audited = true
-  ElMessage.success('审核通过')
+const handleApprove = async (sb: any) => {
+  try {
+    await ElMessageBox.confirm('确认通过这个分镜的审核？', '提示', {
+      type: 'success',
+    })
+
+    // 调用 API 提交审核
+    await api.audits.submitFirst('storyboard', sb.id)
+
+    sb.audited = true
+    ElMessage.success('审核通过')
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      ElMessage.error('审核失败')
+      console.error(error)
+    }
+  }
 }
 
 const handleReject = (sb: any) => {
+  sb.audited = false
+  sb.selected_image_id = null
   ElMessage.warning('已标记为待处理')
 }
+
+onMounted(() => {
+  fetchStoryboards()
+})
 </script>
 
 <style scoped lang="scss">

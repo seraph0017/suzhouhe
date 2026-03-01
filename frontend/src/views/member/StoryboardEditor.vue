@@ -76,7 +76,7 @@
             </div>
 
             <div class="panel-actions" v-if="!isLocked">
-              <el-button link type="danger" size="small" @click.stop="handleDeletePanel(index)">
+              <el-button link type="danger" size="small" @click.stop="handleDeletePanel(panel.id, index)">
                 删除
               </el-button>
               <el-button link type="primary" size="small" @click.stop="selectPanel(panel)">
@@ -169,13 +169,13 @@
               <h4>分镜预览</h4>
               <div class="preview-card">
                 <div class="preview-visual">
-                  <div class="placeholder-image" v-if="!currentPanel.generated_image">
+                  <div class="placeholder-image" v-if="!currentPanel.assets?.length">
                     <el-icon><Picture /></el-icon>
                     <p>等待图片生成</p>
                   </div>
                   <img
                     v-else
-                    :src="currentPanel.generated_image.url"
+                    :src="currentPanel.assets[0]?.url || '/placeholder.png'"
                     alt="Generated"
                   />
                 </div>
@@ -252,6 +252,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft,
@@ -265,6 +266,9 @@ import {
 import { api } from '@/services/api'
 import type { Storyboard, Chapter } from '@/types'
 
+const route = useRoute()
+const router = useRouter()
+
 const loading = ref(false)
 const generating = ref(false)
 const generatingImage = ref(false)
@@ -275,7 +279,16 @@ const showGenerateDialog = ref(false)
 const storyboards = ref<Partial<Storyboard>[]>([])
 const chapters = ref<Chapter[]>([])
 
+// 从路由获取 chapter_id
+const chapterId = computed(() => {
+  // 优先从 query 参数获取
+  const id = route.query.chapter_id || route.params.chapterId
+  return id ? Number(id) : null
+})
+
 const currentPanel = reactive<Partial<Storyboard>>({
+  id: null,
+  chapter_id: null,
   order: 1,
   visual_description: '',
   camera_direction: '',
@@ -286,7 +299,7 @@ const currentPanel = reactive<Partial<Storyboard>>({
 })
 
 const generateForm = reactive({
-  chapterId: null,
+  chapterId: null as number | null,
   count: 5,
   style: 'anime_jp',
 })
@@ -316,14 +329,24 @@ const panelStatusType = (panel: Storyboard) => {
 }
 
 const fetchStoryboards = async () => {
+  if (!chapterId.value) {
+    ElMessage.warning('请先选择章节')
+    return
+  }
+
   loading.value = true
   try {
-    // TODO: Get chapter_id from route
-    const response = await api.storyboards.list(1)
-    storyboards.value = response.data
-  } catch (error) {
-    ElMessage.error('获取分镜列表失败')
-    console.error(error)
+    const response = await api.storyboards.list(chapterId.value)
+    storyboards.value = response.data || response
+    // 检查是否已锁定
+    if (storyboards.value.length > 0 && storyboards.value[0]?.is_locked) {
+      isLocked.value = true
+    }
+  } catch (error: any) {
+    if (error?.response?.status !== 401) {
+      ElMessage.error('获取分镜列表失败')
+      console.error(error)
+    }
   } finally {
     loading.value = false
   }
@@ -331,55 +354,107 @@ const fetchStoryboards = async () => {
 
 const fetchChapters = async () => {
   try {
-    // TODO: Get script_id from route
-    const response = await api.chapters.list(1)
-    chapters.value = response.data
+    // 从路由获取 script_id
+    const scriptId = route.query.script_id || route.params.scriptId
+    if (scriptId) {
+      const response = await api.chapters.list(Number(scriptId))
+      chapters.value = response.data || response
+      // 如果没有选中章节，默认选中第一个
+      if (!chapterId.value && chapters.value.length > 0) {
+        generateForm.chapterId = chapters.value[0].id
+      }
+    }
   } catch (error) {
-    console.error(error)
+    console.error('Failed to fetch chapters:', error)
   }
 }
 
 const selectPanel = (panel: Storyboard) => {
-  Object.assign(currentPanel, panel)
+  // 复制面板数据到 currentPanel
+  Object.assign(currentPanel, {
+    id: panel.id,
+    chapter_id: panel.chapter_id,
+    order: panel.order,
+    visual_description: panel.visual_description || '',
+    camera_direction: panel.camera_direction || '',
+    dialogue: panel.dialogue || '',
+    duration_seconds: panel.duration_seconds || 5,
+    emotion: panel.emotion || '',
+    status: panel.status || 'draft',
+    assets: panel.assets || [],
+  })
   editingPanel.value = true
 }
 
-const handleAddPanel = () => {
+const handleAddPanel = async () => {
+  if (!chapterId.value) {
+    ElMessage.warning('请先选择章节')
+    return
+  }
+
   const newOrder = storyboards.value.length > 0
     ? Math.max(...storyboards.value.map(p => p.order || 0)) + 1
     : 1
 
-  const newPanel: Partial<Storyboard> = {
-    order: newOrder,
-    visual_description: '',
-    camera_direction: '',
-    dialogue: '',
-    duration_seconds: 5,
-    emotion: '',
-    status: 'draft',
+  try {
+    const response = await api.storyboards.create({
+      chapter_id: chapterId.value,
+      order: newOrder,
+      visual_description: '',
+      camera_direction: '',
+      dialogue: '',
+      duration_seconds: 5,
+      emotion: '',
+    })
+
+    const newPanel = response.data
+    storyboards.value.push(newPanel)
+    selectPanel(newPanel)
+    ElMessage.success('添加成功')
+  } catch (error: any) {
+    ElMessage.error('添加分镜失败')
+    console.error(error)
+  }
+}
+
+const handleSavePanel = async () => {
+  if (!currentPanel.id) {
+    ElMessage.error('面板 ID 缺失')
+    return
   }
 
-  storyboards.value.push(newPanel)
-  selectPanel(newPanel)
+  try {
+    await api.storyboards.update(currentPanel.id, {
+      visual_description: currentPanel.visual_description,
+      camera_direction: currentPanel.camera_direction,
+      dialogue: currentPanel.dialogue,
+      duration_seconds: currentPanel.duration_seconds,
+      emotion: currentPanel.emotion,
+    })
+
+    ElMessage.success('保存成功')
+    editingPanel.value = false
+    fetchStoryboards()
+  } catch (error: any) {
+    ElMessage.error('保存失败')
+    console.error(error)
+  }
 }
 
-const handleSavePanel = () => {
-  // TODO: Call API to save
-  ElMessage.success('保存成功')
-  editingPanel.value = false
-  fetchStoryboards()
-}
-
-const handleDeletePanel = async (index: number) => {
+const handleDeletePanel = async (id: number, index: number) => {
   try {
     await ElMessageBox.confirm('确定要删除这个分镜吗？', '警告', {
       type: 'warning',
     })
+
+    await api.storyboards.delete(id)
     storyboards.value.splice(index, 1)
-    // Reorder
-    storyboards.value.forEach((p, i) => {
-      p.order = i + 1
-    })
+
+    // 重新排序
+    for (let i = 0; i < storyboards.value.length; i++) {
+      storyboards.value[i].order = i + 1
+    }
+
     ElMessage.success('删除成功')
   } catch (error: any) {
     if (error !== 'cancel') {
@@ -393,9 +468,24 @@ const handleLockStoryboards = async () => {
     await ElMessageBox.confirm('锁定后将进入素材生成阶段，是否继续？', '提示', {
       type: 'warning',
     })
-    // TODO: Call API to lock
+
+    // 锁定所有分镜
+    const lockPromises = storyboards.value
+      .filter(sb => sb.id)
+      .map(sb => api.storyboards.lock(sb.id!))
+
+    await Promise.all(lockPromises)
+
     isLocked.value = true
-    ElMessage.success('分镜已锁定')
+    ElMessage.success('分镜已锁定，进入素材生成阶段')
+
+    // 跳转到素材选择页面
+    setTimeout(() => {
+      router.push({
+        path: '/member/projects/materials',
+        query: { chapter_id: chapterId.value },
+      })
+    }, 1000)
   } catch (error: any) {
     if (error !== 'cancel') {
       ElMessage.error('锁定失败')
@@ -404,52 +494,30 @@ const handleLockStoryboards = async () => {
 }
 
 const handleAutoGenerate = () => {
+  if (chapters.value.length === 0) {
+    ElMessage.warning('暂无可用章节')
+    return
+  }
   showGenerateDialog.value = true
 }
 
 const confirmGenerate = async () => {
+  if (!generateForm.chapterId) {
+    ElMessage.warning('请选择章节')
+    return
+  }
+
   generating.value = true
   try {
-    // TODO: Call actual API
-    await new Promise(resolve => setTimeout(resolve, 3000))
+    // 调用 AI 生成分镜 API
+    const response = await api.storyboards.generate(generateForm.chapterId)
 
-    // Mock generated storyboards
-    storyboards.value = [
-      {
-        id: 1,
-        order: 1,
-        visual_description: '主角站在学校门口，阳光明媚，樱花飘落',
-        camera_direction: '全景 → 中景，缓慢推镜头',
-        dialogue: '今天是个好日子！',
-        emotion: 'happy',
-        duration_seconds: 5,
-        status: 'draft',
-      },
-      {
-        id: 2,
-        order: 2,
-        visual_description: '好友从远处跑来，挥手打招呼',
-        camera_direction: '中景，摇镜头跟随',
-        dialogue: '好久不见！',
-        emotion: 'excited',
-        duration_seconds: 4,
-        status: 'draft',
-      },
-      {
-        id: 3,
-        order: 3,
-        visual_description: '两人并肩走在校园小路上',
-        camera_direction: '跟拍镜头，侧面视角',
-        dialogue: '最近怎么样？',
-        emotion: 'calm',
-        duration_seconds: 6,
-        status: 'draft',
-      },
-    ]
+    storyboards.value = response.data || response
 
     ElMessage.success('分镜生成成功')
     showGenerateDialog.value = false
-  } catch (error) {
+    editingPanel.value = false
+  } catch (error: any) {
     ElMessage.error('生成失败')
     console.error(error)
   } finally {
@@ -458,18 +526,25 @@ const confirmGenerate = async () => {
 }
 
 const handleGenerateImage = async () => {
+  if (!currentPanel.id) {
+    ElMessage.error('请先保存分镜')
+    return
+  }
+
   generatingImage.value = true
   try {
-    // TODO: Call image generation API
-    await new Promise(resolve => setTimeout(resolve, 2000))
+    // 调用图片生成 API
+    const response = await api.storyboards.generateImage(currentPanel.id)
 
-    currentPanel.generated_image = {
-      url: 'https://via.placeholder.com/400x300?text=Generated+Image',
+    // 更新当前面板的图片
+    if (response.data) {
+      currentPanel.assets = [response.data]
     }
 
     ElMessage.success('图片生成成功')
-  } catch (error) {
+  } catch (error: any) {
     ElMessage.error('生成失败')
+    console.error(error)
   } finally {
     generatingImage.value = false
   }

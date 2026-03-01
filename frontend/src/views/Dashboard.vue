@@ -225,6 +225,8 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { api } from '@/services/api'
+import { ElMessage } from 'element-plus'
 import {
   FolderOpened,
   VideoCamera,
@@ -287,8 +289,36 @@ const priorityType = (priority: string) => {
   return types[priority] || ''
 }
 
-const refreshTasks = () => {
-  // TODO: Fetch from API
+const fetchStats = async () => {
+  try {
+    const response = await api.dashboard.getStats()
+    stats.value = response.data || response
+  } catch (error) {
+    console.error('Failed to fetch stats:', error)
+  }
+}
+
+const fetchTasks = async () => {
+  try {
+    const response = await api.dashboard.getTasks()
+    tasks.value = response.data?.items || response.data || []
+  } catch (error) {
+    console.error('Failed to fetch tasks:', error)
+  }
+}
+
+const fetchProjects = async () => {
+  try {
+    const response = await api.dashboard.getProjects()
+    recentProjects.value = response.data?.items || response.data || []
+  } catch (error) {
+    console.error('Failed to fetch projects:', error)
+  }
+}
+
+const refreshTasks = async () => {
+  await Promise.all([fetchTasks(), fetchStats(), fetchProjects()])
+  ElMessage.success('数据已刷新')
 }
 
 const handleTask = (task: any) => {
@@ -304,27 +334,10 @@ const goToProject = (projectId: number) => {
   router.push(`/projects/${projectId}`)
 }
 
-onMounted(() => {
-  // Mock data
-  stats.value = {
-    total_projects: 5,
-    active_projects: 3,
-    my_tasks: 8,
-    pending_audits: 4,
-  }
+onMounted(async () => {
+  await Promise.all([fetchStats(), fetchTasks(), fetchProjects()])
 
-  tasks.value = [
-    { id: 1, task_type: '分镜创作', project_name: '项目 A', priority: 'high', due_date: '2026-03-05', status: 'pending', progress: 0 },
-    { id: 2, task_type: '一审', project_name: '项目 B', priority: 'urgent', due_date: '2026-03-03', status: 'in_progress', progress: 60 },
-    { id: 3, task_type: '素材生成', project_name: '项目 A', priority: 'normal', due_date: '2026-03-06', status: 'pending', progress: 0 },
-  ]
-
-  recentProjects.value = [
-    { id: 1, name: '项目 A', status_label: '进行中', progress: 65 },
-    { id: 2, name: '项目 B', status_label: '进行中', progress: 40 },
-    { id: 3, name: '项目 C', status_label: '剧本阶段', progress: 20 },
-  ]
-
+  // Mock notifications and activities (these would typically come from WebSocket)
   notifications.value = [
     { id: 1, type: 'task', icon: Bell, title: '新任务已分配', time: '10 分钟前', read: false },
     { id: 2, type: 'audit', icon: DocumentChecked, title: '一审已通过', time: '1 小时前', read: false },

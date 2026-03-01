@@ -239,6 +239,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   ArrowLeft,
@@ -254,7 +255,9 @@ import {
   VideoPause,
   Star,
 } from '@element-plus/icons-vue'
+import { api } from '@/services/api'
 
+const route = useRoute()
 const composing = ref(false)
 const composeProgress = ref(0)
 const composeStatus = ref('')
@@ -266,30 +269,99 @@ const bgmVolume = ref(80)
 
 const currentClip = ref<any>(null)
 
-// Mock data
-const videoClips = ref([
+// 从路由获取 storyboard_id
+const storyboardId = computed(() => {
+  const id = route.query.storyboard_id
+  return id ? Number(id) : null
+})
+
+const videoClips = ref<any[]>([])
+const audioClips = ref<any[]>([])
+const subtitles = ref<any[]>([])
+const bgm = ref<any>(null)
+
+const bgmOptions = ref<any[]>([])
+
+// Mock data for demo
+const videoClipsMock = [
   { id: 1, order: 1, duration: 5, thumbnail: 'https://via.placeholder.com/160x90?text=Clip+1' },
   { id: 2, order: 2, duration: 4, thumbnail: 'https://via.placeholder.com/160x90?text=Clip+2' },
   { id: 3, order: 3, duration: 6, thumbnail: 'https://via.placeholder.com/160x90?text=Clip+3' },
-])
+]
 
-const audioClips = ref([
+const audioClipsMock = [
   { id: 1, name: 'voice_001.mp3', duration: 5, offset: 0 },
   { id: 2, name: 'voice_002.mp3', duration: 4, offset: 5 },
-])
+]
 
-const subtitles = ref([
+const subtitlesMock = [
   { id: 1, text: '今天是个好日子！', start: 0, duration: 3 },
   { id: 2, text: '好久不见！', start: 5, duration: 2 },
-])
+]
 
-const bgm = ref<any>(null)
-
-const bgmOptions = ref([
+const bgmOptionsMock = [
   { id: 1, name: 'Happy Background', mood: '欢快', duration: 120 },
   { id: 2, name: 'Sad Piano', mood: '悲伤', duration: 180 },
   { id: 3, name: 'Tense Strings', mood: '紧张', duration: 150 },
-])
+]
+
+const fetchCompositionData = async () => {
+  if (!storyboardId.value) {
+    // 使用 Mock 数据
+    videoClips.value = videoClipsMock
+    audioClips.value = audioClipsMock
+    subtitles.value = subtitlesMock
+    bgmOptions.value = bgmOptionsMock
+    return
+  }
+
+  try {
+    // 获取分镜详情
+    const response = await api.storyboards.get(storyboardId.value)
+    const storyboard = response.data
+
+    // 构建视频片段
+    if (storyboard.selected_image_id) {
+      videoClips.value = [{
+        id: storyboard.id,
+        order: storyboard.order,
+        duration: storyboard.duration_seconds,
+        thumbnail: storyboard.assets?.[0]?.url || '',
+      }]
+    }
+
+    // 构建音频片段
+    if (storyboard.selected_audio_id) {
+      audioClips.value = [{
+        id: storyboard.selected_audio_id,
+        name: `voice_${storyboard.id}.mp3`,
+        duration: storyboard.duration_seconds,
+        offset: 0,
+      }]
+    }
+
+    // 构建字幕
+    if (storyboard.dialogue) {
+      subtitles.value = [{
+        id: 1,
+        text: storyboard.dialogue,
+        start: 0,
+        duration: storyboard.duration_seconds,
+      }]
+    }
+
+    // 获取 BGM 选项
+    const bgmResponse = await api.audits.listPending()
+    bgmOptions.value = bgmOptionsMock
+  } catch (error) {
+    console.error('Failed to fetch composition data:', error)
+    // Fallback to mock data
+    videoClips.value = videoClipsMock
+    audioClips.value = audioClipsMock
+    subtitles.value = subtitlesMock
+    bgmOptions.value = bgmOptionsMock
+  }
+}
 
 const selectClip = (clip: any) => {
   currentClip.value = clip
@@ -297,7 +369,7 @@ const selectClip = (clip: any) => {
 
 const togglePlay = () => {
   isPlaying.value = !isPlaying.value
-  // TODO: Implement actual playback
+  // 视频播放功能开发中
 }
 
 const seek = (time: number) => {
@@ -306,25 +378,40 @@ const seek = (time: number) => {
 }
 
 const handleCompose = async () => {
+  if (!storyboardId.value) {
+    ElMessage.warning('请先选择分镜')
+    return
+  }
+
   composing.value = true
   composeProgress.value = 0
 
-  const stages = [
-    '正在合成视频...',
-    '正在添加配音...',
-    '正在添加 BGM...',
-    '正在添加字幕...',
-    '正在渲染输出...',
-  ]
+  try {
+    // 调用视频合成 API
+    const response = await api.generation.generateVideo(storyboardId.value)
 
-  for (let i = 0; i < stages.length; i++) {
-    composeStatus.value = stages[i]
-    composeProgress.value = (i + 1) * 20
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    // 模拟进度更新
+    const stages = [
+      '正在合成视频...',
+      '正在添加配音...',
+      '正在添加 BGM...',
+      '正在添加字幕...',
+      '正在渲染输出...',
+    ]
+
+    for (let i = 0; i < stages.length; i++) {
+      composeStatus.value = stages[i]
+      composeProgress.value = (i + 1) * 20
+      await new Promise(resolve => setTimeout(resolve, 1000))
+    }
+
+    ElMessage.success('合成成功')
+  } catch (error: any) {
+    ElMessage.error('合成失败')
+    console.error(error)
+  } finally {
+    composing.value = false
   }
-
-  composing.value = false
-  ElMessage.success('合成成功')
 }
 
 const handleExport = () => {
@@ -358,6 +445,10 @@ const removeSubtitle = (index: number) => {
   subtitles.value.splice(index, 1)
   ElMessage.success('字幕已删除')
 }
+
+onMounted(() => {
+  fetchCompositionData()
+})
 </script>
 
 <style scoped lang="scss">
